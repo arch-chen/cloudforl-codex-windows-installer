@@ -1,0 +1,19 @@
+# Local build and temporary files
+*.tmp
+*.log
+desktop-shortcut-backups/
+design-qa/
+
+# Never commit local credentials or runtime state
+.codex/
+accounts/
+**/selection.json
+**/config.toml
+**/.codex-global-state.json
+
+# Keep release artifacts in dist; exclude ad-hoc build leftovers
+dist/*
+!dist/Cloudforl-Codex-Windows-Installer-v*.exe
+!dist/Cloudforl-Codex-Windows-Installer-v*.zip
+!dist/SHA256SUMS.txt
+!dist/validation.json
