@@ -12,6 +12,9 @@ $choiceUiPath = Join-Path $projectDirectory 'choice-window.ps1'
 $bootstrapPath = Join-Path $projectDirectory 'bootstrap.ps1'
 $buildPath = Join-Path $projectDirectory 'build-release.ps1'
 $exeBuildPath = Join-Path $projectDirectory 'build-exe.ps1'
+$repairPath = Join-Path $projectDirectory 'repair.ps1'
+$repairBuildPath = Join-Path $projectDirectory 'build-repair.ps1'
+$repairLauncherPath = Join-Path $projectDirectory '无损修复 Cloudforl Codex.cmd'
 $launcherPath = Join-Path $projectDirectory '安装 Cloudforl Codex.cmd'
 $launcherSourcePath = Join-Path $projectDirectory 'exe-bootstrapper\Program.cs'
 $manifestPath = Join-Path $projectDirectory 'exe-bootstrapper\app.manifest'
@@ -36,6 +39,9 @@ if (-not (Test-Path -LiteralPath $buildPath)) {
 if (-not (Test-Path -LiteralPath $exeBuildPath)) {
   throw 'The EXE builder is missing.'
 }
+if (-not (Test-Path -LiteralPath $repairPath) -or -not (Test-Path -LiteralPath $repairBuildPath) -or -not (Test-Path -LiteralPath $repairLauncherPath)) {
+  throw 'The non-destructive repair package is missing.'
+}
 if (-not (Test-Path -LiteralPath $launcherSourcePath)) {
   throw 'The EXE launcher source is missing.'
 }
@@ -49,7 +55,7 @@ if (-not (Test-Path -LiteralPath $writerArm64Path)) {
   throw 'The ARM64 offline LevelDB writer is missing.'
 }
 
-foreach ($scriptPath in @($installerPath, $wizardPath, $switcherPath, $choiceUiPath, $bootstrapPath, $buildPath, $exeBuildPath, $PSCommandPath)) {
+foreach ($scriptPath in @($installerPath, $wizardPath, $switcherPath, $choiceUiPath, $bootstrapPath, $buildPath, $exeBuildPath, $repairPath, $repairBuildPath, $PSCommandPath)) {
   $bytes = [IO.File]::ReadAllBytes($scriptPath)
   if ($bytes.Length -lt 3 -or $bytes[0] -ne 239 -or $bytes[1] -ne 187 -or $bytes[2] -ne 191) {
     throw ('Windows PowerShell 5.1 requires a UTF-8 BOM for Chinese source text: ' + $scriptPath)
@@ -204,6 +210,7 @@ if ($source -match '(?i)sk-[A-Za-z0-9_-]{20,}') {
 $wizardSource = [IO.File]::ReadAllText($wizardPath, [Text.Encoding]::UTF8)
 $switcherSource = [IO.File]::ReadAllText($switcherPath, [Text.Encoding]::UTF8)
 $choiceUiSource = [IO.File]::ReadAllText($choiceUiPath, [Text.Encoding]::UTF8)
+$repairSource = [IO.File]::ReadAllText($repairPath, [Text.Encoding]::UTF8)
 $modelSelectionFunction = [regex]::Match($switcherSource, '(?s)function Get-CodexTestModels\s*\{.*?(?=\r?\nfunction Test-Provider)').Value
 if ([string]::IsNullOrWhiteSpace($modelSelectionFunction)) { throw 'Automatic model ranking function is missing.' }
 . ([scriptblock]::Create($modelSelectionFunction))
@@ -254,8 +261,18 @@ if (-not $choiceUiSource.Contains('if (-not $Installation) {') -or
     -not $choiceUiSource.Contains("`$urlBox.Text = ''")) {
   throw 'Installer custom access must start blank without loading previous profiles.'
 }
-foreach ($value in @('$script:SavedReady', '$script:LaunchSavedProfile', 'verified = $false', 'verified = $true', '$testButton.Visible = ($script:ChoiceKind -cne', '已保存的接入配置未改动，可直接启动 Codex。')) {
+foreach ($value in @('$script:SavedReady', '$script:LaunchSavedProfile', 'verified = $true', '$testButton.Visible = ($script:ChoiceKind -cne', '已保存的接入配置未改动，可直接启动 Codex。')) {
   if (-not $choiceUiSource.Contains($value)) { throw ('Saved provider fast launch feature is missing: ' + $value) }
+}
+foreach ($value in @('$modelBox.Tag = $false', '$save.Enabled = $false', 'Test-Provider -BaseUrl $url -Key $key -RequestedModel', '完成模型和 Responses 接口验证', '平台已完成连通验证并保存')) {
+  if (-not $choiceUiSource.Contains($value)) { throw ('New platform full verification flow is missing: ' + $value) }
+}
+if ($choiceUiSource.Contains('返回主窗口仍需测试')) { throw 'New platform dialog must complete verification before returning.' }
+foreach ($value in @('repair-backups', 'provider-switcher.ps1', 'choice-window.ps1', '没有卸载 Codex', '没有删除项目、会话、配置或密钥')) {
+  if (-not $repairSource.Contains($value)) { throw ('Non-destructive repair safeguard is missing: ' + $value) }
+}
+if ($repairSource -match '(?i)Remove-Item\s+.*(?:sessions|projects|profiles|accounts|config\.toml)') {
+  throw 'Repair script must not delete projects, sessions, profiles, accounts, or config.'
 }
 $launchBranch = $switcherSource.Substring($switcherSource.LastIndexOf("if (`$Mode -eq 'Launch')"))
 if ($launchBranch.Contains('$check = Test-Provider')) { throw 'Saved provider launch must not repeat a network test.' }

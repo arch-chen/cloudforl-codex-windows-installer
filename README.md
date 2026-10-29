@@ -8,9 +8,12 @@ Windows 安装器与桌面接入切换器。安装器在目标设备上安装 Op
 
 - [v0.4.6 EXE](dist/Cloudforl-Codex-Windows-Installer-v0.4.6.exe)
 - [v0.4.6 ZIP](dist/Cloudforl-Codex-Windows-Installer-v0.4.6.zip)
+- [已安装设备无损修复 ZIP](dist/Cloudforl-Codex-无损修复-v0.1.0.zip)
 - [SHA256 校验文件](dist/SHA256SUMS.txt)
 
 `dist/` 中保留了 v0.2.0、v0.3.0、v0.3.1、v0.4.0–v0.4.6 的历史 EXE/ZIP 包，便于回滚和对比。当前最新版本会在下载阶段显示直连 MSIX 的大小、百分比和速度；微软 Store/winget 通道则显示动态等待状态和已用时间。
+
+如果设备已经安装并开始使用，不需要卸载或重新安装，可下载“无损修复 ZIP”。解压后双击 `无损修复 Cloudforl Codex.cmd`，它只更新当前用户的启动器脚本，并把旧脚本备份到 `%LOCALAPPDATA%\Cloudforl Codex Switcher\repair-backups`；不会删除项目、会话、配置、平台列表或密钥。
 
 ## 运行要求
 

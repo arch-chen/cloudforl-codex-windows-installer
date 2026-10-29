@@ -15,5 +15,6 @@ accounts/
 dist/*
 !dist/Cloudforl-Codex-Windows-Installer-v*.exe
 !dist/Cloudforl-Codex-Windows-Installer-v*.zip
+!dist/Cloudforl-Codex-无损修复-v*.zip
 !dist/SHA256SUMS.txt
 !dist/validation.json

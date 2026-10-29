@@ -74,13 +74,14 @@ function Show-NewPlatformDialog {
   $keyBox.Location = New-Object Drawing.Point(24, 236); $keyBox.Size = New-Object Drawing.Size(510, 32)
   $modelBox.Location = New-Object Drawing.Point(24, 295); $modelBox.Size = New-Object Drawing.Size(390, 32)
   $modelBox.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDown
+  $modelBox.Tag = $false
   $keyBox.UseSystemPasswordChar = $true
   foreach ($field in @($nameBox,$urlBox,$keyBox,$modelBox)) {
     $field.BackColor = $inputBg; $field.ForeColor = $textColor
     $dialog.Controls.Add($field)
   }
   $fetch = New-Object Windows.Forms.Button
-  $fetch.Text = '获取模型'; $fetch.Location = New-Object Drawing.Point(424, 293)
+  $fetch.Text = '测试连通'; $fetch.Location = New-Object Drawing.Point(424, 293)
   $fetch.Size = New-Object Drawing.Size(110, 35)
   Set-ChoiceButtonStyle $fetch $card $accent $accent
   $dialog.Controls.Add($fetch)
@@ -94,12 +95,21 @@ function Show-NewPlatformDialog {
   $save = New-Object Windows.Forms.Button
   $save.Text = '保存并返回'; $save.Location = New-Object Drawing.Point(462, 363)
   $save.Size = New-Object Drawing.Size(95, 36)
+  $save.Enabled = $false
   Set-ChoiceButtonStyle $save $accent (Get-ChoiceColor '#08242B') $accent
   $dialog.Controls.Add($save)
   $cancel.Add_Click({ $dialog.DialogResult = [Windows.Forms.DialogResult]::Cancel; $dialog.Close() })
   $dialog.CancelButton = $cancel
+  $modelBox.Add_TextChanged({
+    if ($this.Tag -ne 'updating') {
+      $this.Tag = $false
+      $save.Enabled = $false
+    }
+  })
   $fetch.Add_Click({
     $fetch.Enabled = $false
+    $save.Enabled = $false
+    $modelBox.Tag = 'updating'
     $message.Text = '正在读取平台模型列表…'
     try {
       $url = Normalize-ApiUrl -InputUrl $urlBox.Text
@@ -108,13 +118,32 @@ function Show-NewPlatformDialog {
       $catalog = Test-Provider -BaseUrl $url -Key $key -CatalogOnly
       $modelBox.Items.Clear()
       foreach ($model in @($catalog.models)) { [void]$modelBox.Items.Add([string]$model) }
-      $modelBox.Text = [string]$catalog.model
-      $message.Text = ('发现 ' + $modelBox.Items.Count + ' 个模型，已预选 ' + $catalog.model + '；返回主窗口仍需测试。')
+      $candidates = @(Get-CodexTestModels -AvailableModels @($catalog.models) | Select-Object -First 3)
+      if ($candidates.Count -eq 0) { throw '模型列表没有适合 Codex 的通用 GPT 模型。' }
+      $verified = $null
+      $lastError = $null
+      foreach ($candidate in $candidates) {
+        $modelBox.Text = [string]$candidate
+        $message.Text = ('已读取 ' + $modelBox.Items.Count + ' 个模型，正在验证 ' + $candidate + '…')
+        try {
+          $verified = Test-Provider -BaseUrl $url -Key $key -RequestedModel ([string]$candidate) -KnownModels @($catalog.models)
+          break
+        } catch {
+          $lastError = $_.Exception.Message
+          if ($lastError -match '401|403|404') { throw }
+        }
+      }
+      if ($null -eq $verified) { throw ('已自动尝试 ' + $candidates.Count + ' 个模型，均未通过 Responses 测试。' + (Get-SafeChoiceError -Message $lastError)) }
+      $modelBox.Text = [string]$verified.model
+      $modelBox.Tag = $true
+      $save.Enabled = $true
+      $message.Text = ('✓ 已验证 ' + $verified.model + '；共读取 ' + $modelBox.Items.Count + ' 个模型，可以保存。')
       $message.ForeColor = $accent
     } catch {
+      $modelBox.Tag = $false
       $message.Text = Get-SafeChoiceError -Message $_.Exception.Message
       $message.ForeColor = Get-ChoiceColor '#F2A9A9'
-    } finally { $fetch.Enabled = $true; $key = $null }
+    } finally { $modelBox.Tag = if ($modelBox.Tag -eq 'updating') { $false } else { $modelBox.Tag }; $fetch.Enabled = $true; $key = $null }
   })
   $save.Add_Click({
     try {
@@ -125,7 +154,8 @@ function Show-NewPlatformDialog {
       if ($key.Length -lt 8) { throw '请输入完整密钥。' }
       $model = $modelBox.Text.Trim()
       if ([string]::IsNullOrWhiteSpace($model)) { throw '请输入或选择模型标识。' }
-      $dialog.Tag = [pscustomobject]@{ id = 'custom_' + [Guid]::NewGuid().ToString('N'); name = $name; url = $url; model = $model; key = $key }
+      if ($modelBox.Tag -ne $true) { throw '请先点击“测试连通”，完成模型和 Responses 接口验证。' }
+      $dialog.Tag = [pscustomobject]@{ id = 'custom_' + [Guid]::NewGuid().ToString('N'); name = $name; url = $url; model = $model; key = $key; verified = $true }
       $dialog.DialogResult = [Windows.Forms.DialogResult]::OK
       $dialog.Close()
     } catch {
@@ -421,13 +451,13 @@ function Show-ChoiceWindow {
     if ($null -eq $draft) { $newButton.Focus(); return }
     try {
       Protect-Secret -Id ([string]$draft.id) -Secret ([string]$draft.key)
-      $profile = [pscustomobject]@{ id = [string]$draft.id; name = [string]$draft.name; url = [string]$draft.url; model = [string]$draft.model; verified = $false }
+      $profile = [pscustomobject]@{ id = [string]$draft.id; name = [string]$draft.name; url = [string]$draft.url; model = [string]$draft.model; verified = $true }
       $updated = New-Object Collections.Generic.List[object]
       foreach ($old in @($Registry.profiles)) { [void]$updated.Add($old) }
       [void]$updated.Add($profile)
       $Registry.profiles = @($updated.ToArray())
       Save-Registry -Registry $Registry
-      $script:PendingNewProfileId = [string]$profile.id
+      $script:PendingNewProfileId = ''
       $script:UiUpdating = $true
       if ($customProfiles.Count -eq 0) { $saved.Items.Clear() }
       [void]$customProfiles.Add($profile)
@@ -435,7 +465,7 @@ function Show-ChoiceWindow {
       $saved.SelectedIndex = $customProfiles.Count - 1
       $script:UiUpdating = $false
       & $refresh
-      $status.Text = '平台已保存；请测试连通后继续。'
+      $status.Text = '平台已完成连通验证并保存，可直接启动 Codex。'
     } catch {
       $script:UiUpdating = $false
       $status.Text = '平台保存失败；请检查当前用户目录权限后重试。'
